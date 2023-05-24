@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 # custom script arguments
-CONFIG_PATH = 'models/swin_base_b32x4-fp16_fungi+val_res_384_cb_epochs_6.py'
-CHECKPOINT_PATH = "models/swin_base_b32x4-fp16_fungi+val_res_384_cb_epochs_6_20230524-5197a7e6.pth"
-SCORE_THRESHOLD = 0.2
+CONFIG_PATH = 'models/swinv2_base_w24_b32x4-fp16_fungi+val_res_384_cb_epochs_6.py'
+CHECKPOINT_PATH = "models/swinv2_base_w24_b32x4-fp16_fungi+val_res_384_cb_epochs_6_20230524-a251a50a.pth"
+SCORE_THRESHOLD = 0.1
 
 
 def run_inference(input_csv, output_csv, data_root_path):
