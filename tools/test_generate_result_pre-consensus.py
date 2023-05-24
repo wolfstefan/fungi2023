@@ -17,21 +17,11 @@ import torch
 
 from torch.nn import DataParallel
 
-#from mmcv import DictAction
-from mmengine.model.wrappers import MMDistributedDataParallel
-#from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
-#from mmcv.runner import (load_checkpoint,
-#                         wrap_fp16_model)
+from mmengine.config import DictAction
 from mmengine.runner import load_checkpoint
 from mmengine.registry import DefaultScope
-
-
-from mmpretrain.datasets import build_dataset
 from mmengine.runner import Runner
-#from mmcls.datasets import build_dataloader, build_dataset
 from mmpretrain.models import build_classifier
-#from mmcls.models import build_classifier
-#from mmcls.utils import get_root_logger, setup_multi_processes
 
 
 def parse_args():
@@ -39,21 +29,23 @@ def parse_args():
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('out', help='output result file')
+    parser.add_argument('--threshold', default=None, type=float, help='open-set threshold')
+    parser.add_argument('--no-scores', action='store_true', help='don\'t write score .csv file')
     parser.add_argument(
         '--gpu-collect',
         action='store_true',
         help='whether to use gpu to collect results')
     parser.add_argument('--tmpdir', help='tmp dir for writing some results')
-    # parser.add_argument(
-    #     '--cfg-options',
-    #     nargs='+',
-    #     action=DictAction,
-    #     help='override some settings in the used config, the key-value pair '
-    #     'in xxx=yyy format will be merged into config file. If the value to '
-    #     'be overwritten is a list, it should be like key="[a,b]" or key=a,b '
-    #     'It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" '
-    #     'Note that the quotation marks are necessary and that no white space '
-    #     'is allowed.')
+    parser.add_argument(
+        '--cfg-options',
+        nargs='+',
+        action=DictAction,
+        help='override some settings in the used config, the key-value pair '
+        'in xxx=yyy format will be merged into config file. If the value to '
+        'be overwritten is a list, it should be like key="[a,b]" or key=a,b '
+        'It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" '
+        'Note that the quotation marks are necessary and that no white space '
+        'is allowed.')
     parser.add_argument(
         '--device', default=None, help='device used for testing. (Deprecated)')
     parser.add_argument(
@@ -103,8 +95,6 @@ def single_gpu_test(model,
     observation_ids = []
     for i, data in enumerate(data_loader):
         with torch.no_grad():
-            #result = model(return_loss=False, **data)
-            #imgs = data['inputs'].cuda()
             #data = model.module.data_preprocessor(data, training=False)
             imgs = data['inputs'].cuda()
             result = model.module.extract_feat(imgs)
@@ -112,12 +102,10 @@ def single_gpu_test(model,
         filenames = [x.img_path for x in data['data_samples']]
         obs_ids = [osp.basename(x).split('.')[0].split('-')[1] for x in filenames]
         result = list(zip(result[0], obs_ids))
-        #print(result)
 
         batch_size = len(result)
         results.extend(result)
 
-        #batch_size = data['img'].size(0)
         prog_bar.update(batch_size)
     return results
 
@@ -167,8 +155,8 @@ def main():
     default_scope = DefaultScope.get_instance('test', scope_name='mmpretrain')
 
     cfg = mmengine.Config.fromfile(args.config) #mmcv.Config.fromfile(args.config)
-    #if args.cfg_options is not None:
-    #    cfg.merge_from_dict(args.cfg_options)
+    if args.cfg_options is not None:
+        cfg.merge_from_dict(args.cfg_options)
 
     # set multi-process settings
     setup_multi_processes(cfg)
@@ -187,41 +175,11 @@ def main():
     else:
         cfg.gpu_ids = [args.gpu_id]
 
-    # dataset = build_dataset(cfg.data.test, default_args=dict(test_mode=True))
-
-    # # build the dataloader
-    # # The default loader config
-    # loader_cfg = dict(
-    #     # cfg.gpus will be ignored if distributed
-    #     num_gpus=len(cfg.gpu_ids),
-    #     dist=False,
-    #     round_up=True,
-    # )
-    # # The overall dataloader settings
-    # loader_cfg.update({
-    #     k: v
-    #     for k, v in cfg.data.items() if k not in [
-    #         'train', 'val', 'test', 'train_dataloader', 'val_dataloader',
-    #         'test_dataloader'
-    #     ]
-    # })
-    # test_loader_cfg = {
-    #     **loader_cfg,
-    #     'shuffle': False,  # Not shuffle by default
-    #     'sampler_cfg': None,  # Not use sampler by default
-    #     **cfg.data.get('test_dataloader', {}),
-    # }
-    # the extra round_up data will be removed during gpu/cpu collect
     data_loader = Runner.build_dataloader(cfg.test_dataloader)
 
     # build the model and load checkpoint
     model = build_classifier(cfg.model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-
-    # if 'CLASSES' in checkpoint.get('meta', {}):
-    #     CLASSES = checkpoint['meta']['CLASSES']
-    # if CLASSES is None:
-    #     CLASSES = dataset.CLASSES
 
     if args.device == 'cpu':
         model = model.cpu()
@@ -231,30 +189,39 @@ def main():
             assert mmcv.digit_version(mmcv.__version__) >= (1, 4, 4), \
                 'To test with CPU, please confirm your mmcv version ' \
                 'is not lower than v1.4.4'
-    #model.CLASSES = CLASSES
+
     outputs = single_gpu_test(model, data_loader)
 
     results = defaultdict(list)
     for result, obs_id in outputs:
         results[obs_id].append(result)
+
+    if not args.no_scores:
+        with open(args.out + '.scores.csv', 'w') as f2:
+            for obs_id, result in results.items():
+                avg_feats = torch.mean(torch.stack(result, dim=0), dim=0, keepdim=True)
+                scores = model.module.head(avg_feats)
+                f2.write(f'{obs_id}')
+                for s in scores:
+                    f2.write(f',{s}')
+                f2.write('\n')
     
     dropped = 0
     total = 0
-    with open(args.out, 'w') as f, open(args.out + '.scores.csv', 'w') as f2:
-        f.write('observation_id,class_id\n')
+    with open(args.out, 'w') as f:
+        f.write('observationID,class_id\n')
         for obs_id, result in results.items():
             avg_feats = torch.mean(torch.stack(result, dim=0), dim=0, keepdim=True)
             scores = model.module.head(avg_feats)
-            class_id = np.argmax(scores.detach().cpu())
-            #if np.max(scores) < 0.1:
-            #    class_id = -1
-            #    dropped += 1
+            scores = scores.detach().cpu().numpy()
+            class_id = np.argmax(scores)
+            if args.threshold:
+                max_score = float(torch.max(torch.softmax(torch.from_numpy(scores), dim=0)))
+                if max_score < args.threshold:
+                    class_id = -1
+                    dropped += 1
             total += 1
             f.write(f'{obs_id},{float(class_id):.1f}\n')
-            f2.write(f'{obs_id}')
-            for s in scores:
-                f2.write(f',{s}')
-            f2.write('\n')
 
     print(f'dropped {dropped} out of {total}')
 
