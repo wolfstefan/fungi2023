@@ -6,8 +6,8 @@ from pathlib import Path
 
 
 # custom script arguments
-CONFIG_PATH = 'work_dirs/swin_base_b32x4-fp16_fungi+val_res_384_cb_epochs_6/swin_base_b32x4-fp16_fungi+val-test_res_384_cb_epochs_6.py'
-CHECKPOINT_PATH = "work_dirs/swin_base_b32x4-fp16_fungi+val_res_384_cb_epochs_6/epoch_6.pth"
+CONFIG_PATH = 'models/swin_base_b32x4-fp16_fungi+val_res_384_cb_epochs_6.py'
+CHECKPOINT_PATH = "models/swin_base_b32x4-fp16_fungi+val_res_384_cb_epochs_6_20230524-5197a7e6.pth"
 SCORE_THRESHOLD = 0.2
 
 
