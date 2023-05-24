@@ -199,7 +199,7 @@ test_dataloader = dict(
     pin_memory=True,
     persistent_workers=True,
     collate_fn=dict(type='default_collate'),
-    batch_size=64,
+    batch_size=32,
     num_workers=12,
     dataset=dict(
         type='FungiTest',
